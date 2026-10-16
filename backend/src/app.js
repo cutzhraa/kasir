@@ -6,6 +6,7 @@ const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
 const shiftRoutes = require('./routes/shiftRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
+const requireAuth = require('./middlewares/requireAuth');
 
 const app = express();
 
@@ -30,25 +31,34 @@ app.use(express.json());
 
 // Health Check
 app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        message: 'POS API Backend berjalan normal',
-        timestamp: new Date().toISOString()
-    });
+    const { pool } = require('./config/database');
+    pool.query('SELECT 1')
+        .then(() => res.json({
+            status: 'OK',
+            message: 'POS API dan database Supabase berjalan normal',
+            timestamp: new Date().toISOString()
+        }))
+        .catch((error) => {
+            console.error('Health check database gagal:', error);
+            res.status(503).json({
+                status: 'ERROR',
+                message: 'Database tidak dapat diakses'
+            });
+        });
 });
 
 // Endpoint Produk (Bahasa Indonesia & Bahasa Inggris)
-app.use('/api/produk', productRoutes);
-app.use('/api/products', productRoutes);
+app.use('/api/produk', requireAuth, productRoutes);
+app.use('/api/products', requireAuth, productRoutes);
 
 // Endpoint Shift (Bahasa Indonesia & Bahasa Inggris serta variasi typo shif/shift)
-app.use('/api/shift', shiftRoutes);
-app.use('/api/shif', shiftRoutes);
-app.use('/api/shifts', shiftRoutes);
+app.use('/api/shift', requireAuth, shiftRoutes);
+app.use('/api/shif', requireAuth, shiftRoutes);
+app.use('/api/shifts', requireAuth, shiftRoutes);
 
 // Endpoint Transaksi & Auth
-app.use('/api/transaksi', transactionRoutes);
-app.use('/api/transactions', transactionRoutes);
+app.use('/api/transaksi', requireAuth, transactionRoutes);
+app.use('/api/transactions', requireAuth, transactionRoutes);
 app.use('/api/auth', authRoutes);
 
 // Global Error Handler

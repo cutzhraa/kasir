@@ -1,101 +1,93 @@
 # Sistem Aplikasi Kasir (POS) Berbasis Shift
 
-Aplikasi Point of Sale (POS) dengan audit sesi shift kasir untuk pencegahan selisih uang dan kecurangan kasir.
+Aplikasi Point of Sale (POS) dengan audit sesi shift kasir. Frontend menggunakan React/Vite, API Express, dan database PostgreSQL Supabase.
 
-## 📁 Struktur Folder Proyek
+## Struktur Proyek
 
 ```text
 kasir/
 ├── backend/
-│   ├── data/
-│   │   └── kasir.db                   # File database SQLite (otomatis dibuat)
+│   ├── api/[...path].js             # Entry point Vercel Functions
 │   ├── src/
-│   │   ├── config/
-│   │   │   └── database.js            # Koneksi better-sqlite3 (WAL mode & FK On)
+│   │   ├── config/database.js       # Pool koneksi PostgreSQL
 │   │   ├── controllers/
-│   │   │   ├── authController.js      # Login kasir/admin
-│   │   │   ├── productController.js   # Manajemen produk & pencarian barcode
-│   │   │   ├── shiftController.js     # Buka shift, hitung modal, tutup shift & audit selisih
-│   │   │   └── transactionController.js # Checkout transaksi atomic, potong stok & snapshot HPP
 │   │   ├── database/
-│   │   │   ├── schema.sqlite.sql      # DDL Skema SQLite
-│   │   │   └── initDb.js              # Script inisialisasi tabel & seeder default
-│   │   ├── middlewares/
-│   │   │   └── errorHandler.js        # Global error handler
+│   │   │   ├── schema.postgres.sql  # Skema PostgreSQL
+│   │   │   └── initDb.js            # Inisialisasi dan seed akun
 │   │   ├── routes/
-│   │   │   ├── authRoutes.js
-│   │   │   ├── productRoutes.js
-│   │   │   ├── shiftRoutes.js
-│   │   │   └── transactionRoutes.js
-│   │   ├── app.js                     # Inisialisasi Express & routing
-│   │   └── server.js                  # Entry point server HTTP
-│   ├── .env                           # Konfigurasi environment backend
-│   ├── .env.example
-│   ├── .gitignore
+│   │   ├── app.js
+│   │   └── server.js                # Server development lokal
+│   ├── vercel.json
 │   └── package.json
-│
 ├── frontend/
 │   ├── src/
-│   │   ├── assets/
-│   │   ├── components/                # Komponen UI modular
-│   │   ├── context/                   # Context autentikasi & shift kasir
-│   │   ├── hooks/                     # Custom React hooks
-│   │   ├── pages/                     # Halaman POS kasir, tutup shift, produk
-│   │   ├── services/
-│   │   │   └── api.js                 # API service client untuk memanggil backend
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css
-│   ├── index.html
 │   ├── vite.config.js
 │   └── package.json
-│
-├── schema.sql                         # Referensi skema MySQL / MariaDB awal
 └── README.md
 ```
 
-## 🚀 Cara Menjalankan
+## Jalankan secara lokal
 
-### 1. Backend (Node.js + Express + SQLite)
-Masuk ke folder `backend`:
-```bash
-cd backend
-npm install
-npm run db:init   # Inisialisasi tabel SQLite & data awal
-npm run dev       # Menjalankan server pada mode development (port 5000)
+1. Buat `backend/.env` dari `.env.example` dan isi `DATABASE_URL` dengan Supabase Transaction Pooler URL.
+2. Inisialisasi database dan akun development:
+
+   ```powershell
+   cd backend
+   npm install
+   npm run db:init
+   npm run dev
+   ```
+
+   Seeder development membuat admin `admin/admin123` dan kasir `kasir1/kasir123`; gunakan hanya untuk data lokal.
+3. Jalankan frontend di terminal lain:
+
+   ```powershell
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+## Deploy gratis untuk uji coba online
+
+Frontend dan API di-deploy sebagai dua project Vercel; PostgreSQL menggunakan Supabase. Paket gratis memiliki kuota dan batas penggunaan, dan Supabase dapat melakukan pause pada project yang lama tidak aktif.
+
+### 1. Siapkan Supabase
+
+1. Buat project di Supabase.
+2. Ambil **Transaction Pooler connection string** dari **Project Settings → Database → Connection string**. Gunakan URL pooler (biasanya port `6543`) dan simpan password database dengan aman.
+3. Dari PowerShell, jalankan inisialisasi schema dan akun awal. Ganti placeholder dengan nilai sendiri; jangan commit URL/password:
+
+   ```powershell
+   cd backend
+   $env:DATABASE_URL = "PASTE_SUPABASE_TRANSACTION_POOLER_URL"
+   $env:NODE_ENV = "production"
+   $env:INITIAL_ADMIN_PASSWORD = "PASSWORD_ACAK_ADMIN_MINIMAL_12_KARAKTER"
+   $env:INITIAL_CASHIER_PASSWORD = "PASSWORD_ACAK_KASIR_MINIMAL_12_KARAKTER"
+   npm install
+   npm run db:init
+   ```
+
+   Command membuat tabel dan dua akun pertama jika tabel `users` masih kosong. Username bisa diubah melalui `INITIAL_ADMIN_USERNAME` dan `INITIAL_CASHIER_USERNAME`.
+
+### 2. Deploy API ke Vercel
+
+1. Di Vercel, buat **New Project** dari repo `cutzhraa/kasir` yang sama. Ini project kedua—biarkan project frontend terpisah.
+2. Pilih **Root Directory** `backend`.
+3. Atur Environment Variables:
+   - `DATABASE_URL`: Supabase Transaction Pooler connection string.
+   - `NODE_ENV`: `production`.
+   - `JWT_SECRET`: string acak rahasia minimal 32 karakter (buat nilai terpisah dari password database).
+   - `CORS_ORIGINS`: URL frontend Vercel tanpa garis miring di akhir, misalnya `https://kasir.vercel.app`.
+4. Deploy, lalu buka `https://<api-project>.vercel.app/api/health`. Respons `OK` berarti API berhasil terhubung ke database.
+
+### 3. Hubungkan frontend Vercel
+
+Pada project frontend yang sudah dibuat, buka **Settings → Environment Variables**, tambahkan:
+
+```text
+VITE_API_BASE_URL=https://<api-project>.vercel.app/api
 ```
 
-**Akun Default Hasil Seeder:**
-- **Admin**: Username: `admin`, Password: `admin123`
-- **Kasir**: Username: `kasir1`, Password: `kasir123`
+Lalu lakukan **Redeploy** frontend.
 
-### 2. Frontend (React + Vite)
-Masuk ke folder `frontend`:
-```bash
-cd frontend
-npm install
-npm run dev       # Menjalankan aplikasi React Vite (port 5173)
-```
-
-## Deploy untuk uji coba online
-
-Backend dan frontend harus di-deploy terpisah. SQLite memerlukan persistent disk; jangan gunakan filesystem sementara untuk data POS.
-
-### Backend di Render
-
-1. Buat **Web Service** dari repo `cutzhraa/kasir`, dengan **Root Directory** `backend`.
-2. Isi **Build Command** `npm install`, **Start Command** `npm start`, dan **Health Check Path** `/api/health`.
-3. Tambahkan persistent disk yang tersedia pada plan service, dengan **Mount Path** `/var/data`.
-4. Atur environment variables:
-   - `NODE_ENV=production`
-   - `DB_PATH=/var/data/kasir.db`
-   - `JWT_SECRET` dengan secret acak yang panjang dan unik
-   - `CORS_ORIGINS` dengan domain frontend Vercel, misalnya `https://kasir-example.vercel.app`
-   - Jangan isi `PORT`; Render menyediakannya.
-5. Setelah deploy, buka `https://<nama-service>.onrender.com/api/health` dan pastikan respons menunjukkan status `OK`.
-
-### Frontend di Vercel
-
-Di **Project Settings → Environment Variables**, tambahkan `VITE_API_BASE_URL` dengan nilai `https://<nama-service>.onrender.com/api`, lalu redeploy frontend.
-
-> **Keamanan:** aplikasi saat ini membuat akun awal `admin/admin123` dan `kasir1/kasir123`. Jangan gunakan untuk transaksi atau data sungguhan sebelum kredensial default dan proteksi API diperbaiki. Deploy ini sebaiknya dipakai untuk uji coba terlebih dahulu.
+> Ini menggunakan database Supabase baru; data SQLite lokal tidak otomatis disalin. Route operasional memerlukan login, token kedaluwarsa otomatis, dan data shift/transaksi dibatasi per kasir (admin dapat melihat seluruhnya). Gunakan hanya untuk pengujian dengan data dummy sampai proses otorisasi dan pengelolaan akun ditinjau sebelum pemakaian produksi.

@@ -2,12 +2,14 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
 async function request(endpoint, options = {}) {
+    const token = localStorage.getItem('pos_token');
     const config = {
+        ...options,
         headers: {
             'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...(options.headers || {})
-        },
-        ...options
+        }
     };
 
     try {
@@ -15,6 +17,11 @@ async function request(endpoint, options = {}) {
         const data = await response.json();
 
         if (!response.ok) {
+            if (response.status === 401 && endpoint !== '/auth/login') {
+                localStorage.removeItem('pos_token');
+                localStorage.removeItem('pos_user');
+                window.dispatchEvent(new Event('pos:unauthorized'));
+            }
             throw new Error(data.message || 'Terjadi kesalahan pada request API');
         }
 

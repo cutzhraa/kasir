@@ -1,34 +1,32 @@
-const db = require('../config/database');
+const { pool } = require('../config/database');
 
 const productController = {
-    // Ambil daftar semua produk
-    getAll: (req, res, next) => {
+    getAll: async (req, res, next) => {
         try {
             const { search } = req.query;
-            let query = 'SELECT * FROM produk WHERE is_active = 1';
-            let params = [];
+            const params = [];
+            let query = 'SELECT * FROM produk WHERE is_active = TRUE';
 
             if (search) {
-                query += ' AND (nama_barang LIKE ? OR barcode LIKE ? OR kode_sku LIKE ?)';
-                const term = `%${search}%`;
-                params = [term, term, term];
+                params.push(`%${search}%`);
+                query += ` AND (nama_barang ILIKE $1 OR barcode ILIKE $1 OR kode_sku ILIKE $1)`;
             }
 
             query += ' ORDER BY id DESC';
-            const products = db.prepare(query).all(...params);
-            res.json({ success: true, data: products });
+            const { rows } = await pool.query(query, params);
+            res.json({ success: true, data: rows });
         } catch (error) {
             next(error);
         }
     },
 
-    // Cari produk spesifik berdasarkan Barcode / SKU
-    getByBarcodeOrSku: (req, res, next) => {
+    getByBarcodeOrSku: async (req, res, next) => {
         try {
             const { code } = req.params;
-            const product = db.prepare(
-                'SELECT * FROM produk WHERE (barcode = ? OR kode_sku = ?) AND is_active = 1'
-            ).get(code, code);
+            const { rows: [product] } = await pool.query(
+                'SELECT * FROM produk WHERE (barcode = $1 OR kode_sku = $1) AND is_active = TRUE',
+                [code]
+            );
 
             if (!product) {
                 return res.status(404).json({ success: false, message: 'Produk tidak ditemukan' });
@@ -39,37 +37,32 @@ const productController = {
         }
     },
 
-    // Tambah produk baru
-    create: (req, res, next) => {
+    create: async (req, res, next) => {
         try {
             const { nama_barang, barcode, kode_sku, harga_beli, harga_jual, stok, stok_minimum } = req.body;
-
+            const productName = nama_barang;
             const sku = kode_sku || barcode || `SKU-${Date.now()}`;
-            const bar = barcode || null;
 
-            if (!nama_barang || harga_jual === undefined) {
+            if (!productName || harga_jual === undefined) {
                 return res.status(400).json({
                     success: false,
                     message: 'Nama barang dan harga jual wajib diisi'
                 });
             }
 
-            const stmt = db.prepare(`
+            const { rows: [newProduct] } = await pool.query(`
                 INSERT INTO produk (nama_barang, barcode, kode_sku, harga_beli, harga_jual, stok, stok_minimum)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            const result = stmt.run(
-                nama_barang,
-                bar,
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING *
+            `, [
+                productName,
+                barcode || null,
                 sku,
                 harga_beli || 0,
                 harga_jual,
                 stok || 0,
                 stok_minimum || 5
-            );
-
-            const newProduct = db.prepare('SELECT * FROM produk WHERE id = ?').get(result.lastInsertRowid);
+            ]);
             res.status(201).json({ success: true, data: newProduct });
         } catch (error) {
             next(error);
@@ -78,4 +71,3 @@ const productController = {
 };
 
 module.exports = productController;
-

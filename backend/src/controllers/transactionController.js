@@ -1,81 +1,104 @@
-const db = require('../config/database');
+const { pool, withTransaction } = require('../config/database');
+
+function createRequestError(message, statusCode = 400) {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+}
 
 const transactionController = {
-    // Ambil daftar riwayat transaksi terbaru beserta itemnya
-    getAll: (req, res, next) => {
+    getAll: async (req, res, next) => {
         try {
             const { shift_id, limit = 50 } = req.query;
+            const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+            const params = [];
+            const filters = [];
             let query = `
-                SELECT t.*, u.nama as nama_kasir,
-                       (SELECT COUNT(*) FROM detail_transaksi dt WHERE dt.transaksi_id = t.id) as total_item_count,
-                       (SELECT COALESCE(SUM(jumlah_beli), 0) FROM detail_transaksi dt WHERE dt.transaksi_id = t.id) as total_item_qty
+                SELECT t.*, u.nama AS nama_kasir,
+                       (SELECT COUNT(*) FROM detail_transaksi dt WHERE dt.transaksi_id = t.id) AS total_item_count,
+                       (SELECT COALESCE(SUM(jumlah_beli), 0) FROM detail_transaksi dt WHERE dt.transaksi_id = t.id) AS total_item_qty
                 FROM transaksi t
                 JOIN users u ON t.kasir_id = u.id
+                JOIN sesi_shift s ON t.sesi_shift_id = s.id
             `;
-            let params = [];
 
+            if (req.auth.role !== 'admin') {
+                params.push(req.auth.id);
+                filters.push(`s.user_id = $${params.length}`);
+            }
             if (shift_id) {
-                query += ' WHERE t.sesi_shift_id = ?';
                 params.push(shift_id);
+                filters.push(`t.sesi_shift_id = $${params.length}`);
+            }
+            if (filters.length) query += ` WHERE ${filters.join(' AND ')}`;
+            params.push(safeLimit);
+            query += ` ORDER BY t.id DESC LIMIT $${params.length}`;
+
+            const { rows: transactions } = await pool.query(query, params);
+            if (!transactions.length) {
+                return res.json({ success: true, data: [] });
             }
 
-            query += ' ORDER BY t.id DESC LIMIT ?';
-            params.push(Number(limit));
+            const ids = transactions.map((transaction) => transaction.id);
+            const { rows: items } = await pool.query(`
+                SELECT dt.*, p.nama_barang, p.kode_sku
+                FROM detail_transaksi dt
+                JOIN produk p ON dt.produk_id = p.id
+                WHERE dt.transaksi_id = ANY($1::integer[])
+                ORDER BY dt.id
+            `, [ids]);
+            const itemsByTransaction = new Map();
+            for (const item of items) {
+                const transactionItems = itemsByTransaction.get(item.transaksi_id) || [];
+                transactionItems.push(item);
+                itemsByTransaction.set(item.transaksi_id, transactionItems);
+            }
 
-            const transactions = db.prepare(query).all(...params);
-
-            // Tambahkan detail item barang pada setiap transaksi riwayat
-            const fullTransactions = transactions.map((trx) => {
-                const items = db.prepare(`
-                    SELECT dt.*, p.nama_barang, p.kode_sku
-                    FROM detail_transaksi dt
-                    JOIN produk p ON dt.produk_id = p.id
-                    WHERE dt.transaksi_id = ?
-                `).all(trx.id);
-                return { ...trx, items };
+            res.json({
+                success: true,
+                data: transactions.map((transaction) => ({
+                    ...transaction,
+                    items: itemsByTransaction.get(transaction.id) || []
+                }))
             });
-
-            res.json({ success: true, data: fullTransactions });
         } catch (error) {
             next(error);
         }
     },
 
-    // Ambil detail satu transaksi lengkap dengan itemnya
-    getById: (req, res, next) => {
+    getById: async (req, res, next) => {
         try {
             const { id } = req.params;
-            const trx = db.prepare(`
-                SELECT t.*, u.nama as nama_kasir
+            const { rows: [transaction] } = await pool.query(`
+                SELECT t.*, u.nama AS nama_kasir
                 FROM transaksi t
                 JOIN users u ON t.kasir_id = u.id
-                WHERE t.id = ?
-            `).get(id);
+                JOIN sesi_shift s ON t.sesi_shift_id = s.id
+                WHERE t.id = $1 AND ($3 = 'admin' OR s.user_id = $2)
+            `, [id, req.auth.id, req.auth.role]);
 
-            if (!trx) {
+            if (!transaction) {
                 return res.status(404).json({ success: false, message: 'Transaksi tidak ditemukan' });
             }
 
-            const items = db.prepare(`
+            const { rows: items } = await pool.query(`
                 SELECT dt.*, p.nama_barang, p.kode_sku, p.barcode
                 FROM detail_transaksi dt
                 JOIN produk p ON dt.produk_id = p.id
-                WHERE dt.transaksi_id = ?
-            `).all(id);
-
-            res.json({ success: true, data: { ...trx, items } });
+                WHERE dt.transaksi_id = $1
+                ORDER BY dt.id
+            `, [id]);
+            res.json({ success: true, data: { ...transaction, items } });
         } catch (error) {
             next(error);
         }
     },
 
-    // Buat transaksi baru (Checkout kasir dengan pengurangan stok otomatis)
-    create: (req, res, next) => {
+    create: async (req, res, next) => {
         try {
             const {
                 sesi_shift_id,
-                kasir_id,
-                items, // Array of { produk_id, jumlah_beli }
+                items,
                 metode_pembayaran = 'tunai',
                 jumlah_bayar
             } = req.body;
@@ -87,139 +110,150 @@ const transactionController = {
                 });
             }
 
-            // 1. Verifikasi shift masih aktif
-            const shift = db.prepare('SELECT * FROM sesi_shift WHERE id = ?').get(sesi_shift_id);
-            if (!shift) {
-                return res.status(404).json({ success: false, message: 'Sesi shift tidak ditemukan' });
-            }
-            if (shift.status_sesi !== 'aktif') {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Sesi shift ini sudah ditutup. Tidak dapat memproses transaksi baru.'
-                });
-            }
+            const createdId = await withTransaction(async (client) => {
+                const { rows: [shift] } = await client.query(
+                    'SELECT * FROM sesi_shift WHERE id = $1 FOR UPDATE',
+                    [sesi_shift_id]
+                );
+                if (!shift) throw createRequestError('Sesi shift tidak ditemukan', 404);
+                if (shift.user_id !== req.auth.id) {
+                    throw createRequestError('Sesi shift bukan milik kasir yang sedang login', 403);
+                }
+                if (shift.status_sesi !== 'aktif') {
+                    throw createRequestError('Sesi shift ini sudah ditutup. Tidak dapat memproses transaksi baru.');
+                }
 
-            // 2. Transaksi database atomic (Integritas ACID)
-            const executeTransaction = db.transaction(() => {
-                let totalHarga = 0;
-                const preparedItems = [];
-
-                // Validasi setiap item & hitung subtotal dengan snapshot harga saat ini
+                const requestedQuantities = new Map();
                 for (const item of items) {
-                    const product = db.prepare('SELECT * FROM produk WHERE id = ? AND is_active = 1').get(item.produk_id);
+                    const productId = Number(item.produk_id);
+                    const quantity = Number(item.jumlah_beli);
+                    if (!Number.isSafeInteger(productId) || productId < 1 ||
+                        !Number.isSafeInteger(quantity) || quantity < 1) {
+                        throw createRequestError('Produk dan jumlah beli harus berupa bilangan bulat positif');
+                    }
+                    requestedQuantities.set(
+                        productId,
+                        (requestedQuantities.get(productId) || 0) + quantity
+                    );
+                }
+
+                const productIds = [...requestedQuantities.keys()].sort((a, b) => a - b);
+                const { rows: products } = await client.query(`
+                    SELECT * FROM produk
+                    WHERE id = ANY($1::integer[]) AND is_active = TRUE
+                    ORDER BY id FOR UPDATE
+                `, [productIds]);
+                const productsById = new Map(products.map((product) => [product.id, product]));
+
+                for (const [productId, quantity] of requestedQuantities) {
+                    const product = productsById.get(productId);
                     if (!product) {
-                        throw new Error(`Produk dengan ID ${item.produk_id} tidak ditemukan atau non-aktif`);
+                        throw createRequestError(`Produk dengan ID ${productId} tidak ditemukan atau non-aktif`);
                     }
-
-                    if (product.stok < item.jumlah_beli) {
-                        throw new Error(`Stok produk "${product.nama_barang}" tidak mencukupi (sisa ${product.stok})`);
+                    if (Number(product.stok) < quantity) {
+                        throw createRequestError(
+                            `Stok produk "${product.nama_barang}" tidak mencukupi (sisa ${product.stok})`
+                        );
                     }
+                }
 
-                    const qty = Number(item.jumlah_beli);
+                let totalHarga = 0;
+                const preparedItems = items.map((item) => {
+                    const product = productsById.get(Number(item.produk_id));
+                    const quantity = Number(item.jumlah_beli);
                     const hargaSatuan = Number(product.harga_jual);
                     const hargaBeliSatuan = Number(product.harga_beli);
-                    const subtotal = qty * hargaSatuan;
-
+                    const subtotal = quantity * hargaSatuan;
                     totalHarga += subtotal;
-                    preparedItems.push({
+                    return {
                         produk_id: product.id,
-                        nama_barang: product.nama_barang,
-                        jumlah_beli: qty,
+                        jumlah_beli: quantity,
                         harga_satuan: hargaSatuan,
                         harga_beli_satuan: hargaBeliSatuan,
                         subtotal
-                    });
-                }
+                    };
+                });
 
                 const bayar = Number(jumlah_bayar !== undefined ? jumlah_bayar : totalHarga);
+                if (!Number.isFinite(bayar) || bayar < 0) {
+                    throw createRequestError('Jumlah bayar tidak valid');
+                }
                 if (metode_pembayaran === 'tunai' && bayar < totalHarga) {
-                    throw new Error('Jumlah bayar tunai kurang dari total belanja');
+                    throw createRequestError('Jumlah bayar tunai kurang dari total belanja');
                 }
                 const kembalian = bayar - totalHarga;
-
-                // Generate Invoice Unik
                 const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-                const randomCode = Math.floor(1000 + Math.random() * 9000);
-                const nomorInvoice = `INV-${dateStr}-${randomCode}`;
+                const nomorInvoice = `INV-${dateStr}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-                // Insert header transaksi
-                const insertTrx = db.prepare(`
+                const { rows: [transaction] } = await client.query(`
                     INSERT INTO transaksi (
-                        nomor_invoice, sesi_shift_id, kasir_id, total_harga, 
+                        nomor_invoice, sesi_shift_id, kasir_id, total_harga,
                         metode_pembayaran, jumlah_bayar, kembalian, status_transaksi
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'selesai')
-                `);
-
-                const trxResult = insertTrx.run(
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'selesai')
+                    RETURNING id
+                `, [
                     nomorInvoice,
                     sesi_shift_id,
-                    kasir_id,
+                    req.auth.id,
                     totalHarga,
                     metode_pembayaran,
                     bayar,
                     kembalian
-                );
-
-                const transaksiId = trxResult.lastInsertRowid;
-
-                // Insert detail transaksi & kurangi stok produk secara atomik
-                const insertDetail = db.prepare(`
-                    INSERT INTO detail_transaksi (
-                        transaksi_id, produk_id, jumlah_beli, harga_satuan, harga_beli_satuan, subtotal
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                `);
-
-                const updateStok = db.prepare(`
-                    UPDATE produk SET stok = stok - ? WHERE id = ?
-                `);
+                ]);
 
                 for (const item of preparedItems) {
-                    insertDetail.run(
-                        transaksiId,
+                    await client.query(`
+                        INSERT INTO detail_transaksi (
+                            transaksi_id, produk_id, jumlah_beli, harga_satuan, harga_beli_satuan, subtotal
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                    `, [
+                        transaction.id,
                         item.produk_id,
                         item.jumlah_beli,
                         item.harga_satuan,
                         item.harga_beli_satuan,
                         item.subtotal
-                    );
-
-                    updateStok.run(item.jumlah_beli, item.produk_id);
+                    ]);
                 }
 
-                return {
-                    transaksiId,
-                    nomorInvoice,
-                    totalHarga,
-                    kembalian
-                };
+                for (const [productId, quantity] of requestedQuantities) {
+                    await client.query(
+                        'UPDATE produk SET stok = stok - $1, updated_at = NOW() WHERE id = $2',
+                        [quantity, productId]
+                    );
+                }
+
+                return transaction.id;
             });
 
-            const result = executeTransaction();
-
-            // Ambil data lengkap transaksi hasil simpan dari DB
-            const createdTrx = db.prepare(`
-                SELECT t.*, u.nama as nama_kasir
+            const { rows: [createdTransaction] } = await pool.query(`
+                SELECT t.*, u.nama AS nama_kasir
                 FROM transaksi t
                 JOIN users u ON t.kasir_id = u.id
-                WHERE t.id = ?
-            `).get(result.transaksiId);
-
-            const itemsFromDb = db.prepare(`
+                WHERE t.id = $1
+            `, [createdId]);
+            const { rows: createdItems } = await pool.query(`
                 SELECT dt.*, p.nama_barang, p.kode_sku, p.barcode
                 FROM detail_transaksi dt
                 JOIN produk p ON dt.produk_id = p.id
-                WHERE dt.transaksi_id = ?
-            `).all(result.transaksiId);
+                WHERE dt.transaksi_id = $1
+                ORDER BY dt.id
+            `, [createdId]);
 
             res.status(201).json({
                 success: true,
                 message: 'Transaksi berhasil disimpan dan stok produk telah diperbarui',
-                data: {
-                    ...createdTrx,
-                    items: itemsFromDb
-                }
+                data: { ...createdTransaction, items: createdItems }
             });
         } catch (error) {
+            if (error.code === '23514' || error.code === '23503') {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Data transaksi tidak valid'
+                });
+            }
             next(error);
         }
     }

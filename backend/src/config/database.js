@@ -1,26 +1,32 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
-require('dotenv').config();
+const { Pool, types } = require('pg');
 
-// Lokasi file database SQLite
-const dbPath = process.env.DB_PATH || path.resolve(__dirname, '../../data/kasir.db');
+types.setTypeParser(1700, Number);
+types.setTypeParser(20, Number);
 
-// Pastikan folder data tersedia
-const dir = path.dirname(dbPath);
-if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL wajib diatur untuk koneksi Supabase PostgreSQL');
 }
 
-// Inisialisasi koneksi SQLite
-const db = new Database(dbPath, {
-    verbose: process.env.NODE_ENV === 'development' ? console.log : null,
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: process.env.VERCEL ? 3 : 10,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 10000
 });
 
-// Konfigurasi performa & integritas referensial
-db.pragma('journal_mode = WAL'); // Write-Ahead Logging untuk konkurensi tinggi
-db.pragma('foreign_keys = ON');   // Wajib aktif untuk integritas relasi foreign key
-db.pragma('synchronous = NORMAL');
+async function withTransaction(callback) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await callback(client);
+        await client.query('COMMIT');
+        return result;
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+}
 
-module.exports = db;
-
+module.exports = { pool, withTransaction };

@@ -45,9 +45,7 @@ export default function App() {
     }
   });
 
-  const [loginForm, setLoginForm] = useState({ username: 'kasir1', password: 'kasir123' });
-  const [availableUsers, setAvailableUsers] = useState([]);
-
+  const [loginForm, setLoginForm] = useState({ username: 'kasir1', password: '' });
   // 2. State Sesi Shift
   const [activeShift, setActiveShift] = useState(null);
   const [shiftSummary, setShiftSummary] = useState(null);
@@ -107,18 +105,6 @@ export default function App() {
     setTimeout(() => setNotification({ message: '', type: '' }), 4500);
   };
 
-  // Muat Daftar User untuk Halaman Login
-  const loadUsers = async () => {
-    try {
-      const res = await api.auth.getUsers();
-      if (res.success) {
-        setAvailableUsers(res.data);
-      }
-    } catch (err) {
-      console.error('Gagal memuat daftar user:', err);
-    }
-  };
-
   // Muat Produk dari Backend
   const loadProducts = async (keyword = '') => {
     try {
@@ -163,13 +149,22 @@ export default function App() {
   };
 
   useEffect(() => {
-    loadUsers();
     if (currentUser) {
       checkActiveShift(currentUser.id);
       loadProducts();
       loadTransactions();
     }
   }, [currentUser?.id]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setCurrentUser(null);
+      setActiveShift(null);
+      setCart([]);
+    };
+    window.addEventListener('pos:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('pos:unauthorized', handleUnauthorized);
+  }, []);
 
   // ==========================================
   // HANDLER SCAN BARCODE & QUICK ADD
@@ -240,6 +235,7 @@ export default function App() {
       const res = await api.auth.login(loginForm);
       if (res.success) {
         const user = res.data.user;
+        localStorage.setItem('pos_token', res.data.token);
         setCurrentUser(user);
         localStorage.setItem('pos_user', JSON.stringify(user));
 
@@ -267,6 +263,7 @@ export default function App() {
     setCurrentUser(null);
     setActiveShift(null);
     setCart([]);
+    localStorage.removeItem('pos_token');
     localStorage.removeItem('pos_user');
     showNotify('Anda telah keluar dari aplikasi');
   };
@@ -483,50 +480,16 @@ export default function App() {
             <p className="login-desc">Silakan masuk untuk memulai sesi shift penjualan</p>
           </div>
 
-          <div className="quick-login-box">
-            <span className="quick-login-label">Pilih Akun Cepat (Testing):</span>
-            <div className="quick-btn-group">
-              <button
-                type="button"
-                className="quick-btn"
-                onClick={() => setLoginForm({ username: 'kasir1', password: 'kasir123' })}
-              >
-                👤 Kasir Utama
-              </button>
-              <button
-                type="button"
-                className="quick-btn"
-                onClick={() => setLoginForm({ username: 'admin', password: 'admin123' })}
-              >
-                ⚡ Super Admin
-              </button>
-            </div>
-          </div>
-
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div className="form-group">
               <label className="form-label">Username Kasir</label>
-              {availableUsers.length > 0 ? (
-                <select
-                  value={loginForm.username}
-                  onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                  style={{ height: '40px' }}
-                >
-                  {availableUsers.map((u) => (
-                    <option key={u.id} value={u.username}>
-                      {u.nama} ({u.role}) - @{u.username}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  required
-                  placeholder="Username"
-                  value={loginForm.username}
-                  onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                />
-              )}
+              <input
+                type="text"
+                required
+                placeholder="Username"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+              />
             </div>
 
             <div className="form-group">

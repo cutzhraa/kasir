@@ -4,11 +4,14 @@ const initDatabase = require('./database/initDb');
 
 const PORT = process.env.PORT || 5000;
 
-// Pastikan skema database dan seed awal telah siap
-initDatabase();
-
-app.listen(PORT, () => {
-    console.log(`🚀 Server backend POS berjalan di http://localhost:${PORT}`);
-    console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
-});
-
+initDatabase()
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`🚀 Server backend POS berjalan di http://localhost:${PORT}`);
+            console.log(`📡 Health Check: http://localhost:${PORT}/api/health`);
+        });
+    })
+    .catch((error) => {
+        console.error('❌ Server tidak dapat dimulai:', error);
+        process.exit(1);
+    });
