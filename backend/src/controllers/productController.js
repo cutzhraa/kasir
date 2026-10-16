@@ -37,6 +37,61 @@ const productController = {
         }
     },
 
+    lookupBarcode: async (req, res, next) => {
+        const { code } = req.params;
+        if (!/^\d{8,14}$/.test(code)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Pencarian katalog eksternal hanya mendukung barcode angka 8-14 digit'
+            });
+        }
+
+        try {
+            const response = await fetch(
+                `https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(code)}.json?fields=product_name,product_name_en,brands,quantity`,
+                {
+                    headers: { 'User-Agent': 'KasirPOS/1.0 (barcode product lookup)' },
+                    signal: AbortSignal.timeout(5000)
+                }
+            );
+
+            if (!response.ok) {
+                return res.status(502).json({
+                    success: false,
+                    message: 'Katalog produk eksternal sedang tidak tersedia'
+                });
+            }
+
+            const result = await response.json();
+            const product = result.status === 'success' ? result.product : null;
+            const name = product?.product_name || product?.product_name_en || '';
+            if (!name) {
+                return res.json({ success: true, data: null });
+            }
+
+            const brand = product.brands?.split(',')[0]?.trim() || '';
+            const quantity = product.quantity?.trim() || '';
+            const displayName = [name, quantity].filter(Boolean).join(' ');
+
+            res.json({
+                success: true,
+                data: {
+                    name: displayName,
+                    brand,
+                    source: 'Open Food Facts'
+                }
+            });
+        } catch (error) {
+            if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+                return res.status(504).json({
+                    success: false,
+                    message: 'Pencarian katalog produk melewati batas waktu'
+                });
+            }
+            next(error);
+        }
+    },
+
     create: async (req, res, next) => {
         try {
             const { nama_barang, barcode, kode_sku, harga_beli, harga_jual, stok, stok_minimum } = req.body;

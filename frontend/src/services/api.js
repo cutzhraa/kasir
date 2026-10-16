@@ -45,6 +45,9 @@ export const api = {
                 return { success: false, data: null, message: err.message };
             }
         },
+
+        lookupBarcode: (code) =>
+            request(`/produk/lookup/${encodeURIComponent(code)}`),
         
         create: (data) => 
             request('/produk', {

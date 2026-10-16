@@ -82,6 +82,7 @@ export default function App() {
     stok: '50',
     stok_minimum: '5'
   });
+  const [quickAddLookupMessage, setQuickAddLookupMessage] = useState('');
 
   // 6. Form Transaksi POS
   const [paymentMethod, setPaymentMethod] = useState('tunai');
@@ -193,8 +194,31 @@ export default function App() {
           stok: '50',
           stok_minimum: '5'
         });
+        setQuickAddLookupMessage('Mencari nama produk dari katalog publik...');
         setShowQuickAddModal(true);
-        showNotify(`Barcode "${cleanCode}" belum terdaftar. Silakan daftarkan produk baru.`, 'info');
+
+        try {
+          const lookup = await api.produk.lookupBarcode(cleanCode);
+          if (lookup.data?.name) {
+            setQuickAddForm((current) =>
+              current.barcode === cleanCode && !current.nama_barang
+                ? { ...current, nama_barang: lookup.data.name }
+                : current
+            );
+            setQuickAddLookupMessage(
+              `Saran nama dari ${lookup.data.source}. Periksa nama produk; harga dan stok tetap perlu diisi.`
+            );
+          } else {
+            setQuickAddLookupMessage(
+              'Produk tidak ditemukan di katalog publik. Nama, harga, dan stok bisa diisi manual.'
+            );
+          }
+        } catch (lookupError) {
+          console.warn('Pencarian katalog barcode gagal:', lookupError);
+          setQuickAddLookupMessage(
+            'Katalog publik tidak dapat diakses. Nama, harga, dan stok bisa diisi manual.'
+          );
+        }
       }
     } catch (err) {
       showNotify('Gagal mengecek barcode: ' + err.message, 'error');
@@ -900,7 +924,7 @@ export default function App() {
                 🏷️ Kode Barcode: <code>{quickAddForm.barcode}</code>
               </span>
               <span style={{ fontSize: '12px', color: '#334155' }}>
-                Barcode ini belum ada di tabel produk. Lengkapi form singkat berikut untuk mendaftarkan dan <strong>langsung memasukkannya ke keranjang belanja</strong>.
+                {quickAddLookupMessage} Pastikan informasi benar sebelum menyimpan. Produk yang disimpan akan <strong>langsung masuk ke keranjang belanja</strong>.
               </span>
             </div>
 

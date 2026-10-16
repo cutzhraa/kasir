@@ -90,3 +90,7 @@ VITE_API_BASE_URL=https://<api-project>.vercel.app/api
 Lalu lakukan **Redeploy** frontend.
 
 > Ini menggunakan database Supabase baru; data SQLite lokal tidak otomatis disalin. Route operasional memerlukan login, token kedaluwarsa otomatis, dan data shift/transaksi dibatasi per kasir (admin dapat melihat seluruhnya). Gunakan hanya untuk pengujian dengan data dummy sampai proses otorisasi dan pengelolaan akun ditinjau sebelum pemakaian produksi.
+
+### Pencarian nama produk lewat barcode
+
+Jika barcode belum terdaftar di katalog toko, aplikasi mencoba mencari nama produk dan kuantitas di [Open Food Facts](https://world.openfoodfacts.org/). Hasilnya hanya saran untuk membantu pengisian nama; kasir tetap perlu memeriksa data dan mengisi harga serta stok toko. Jika produk tidak ditemukan atau layanan tidak tersedia, produk masih bisa didaftarkan secara manual. Katalog ini terutama mencakup produk makanan/minuman, sehingga tidak semua barcode tersedia. Ikuti [ketentuan penggunaan API Open Food Facts](https://openfoodfacts.github.io/openfoodfacts-server/api/) dan lengkapi formulir penggunaan API mereka sebelum pemakaian rutin.
