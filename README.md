@@ -7,7 +7,6 @@ Aplikasi Point of Sale (POS) dengan audit sesi shift kasir. Frontend menggunakan
 ```text
 kasir/
 ├── backend/
-│   ├── api/[...path].js             # Entry point Vercel Functions
 │   ├── src/
 │   │   ├── config/database.js       # Pool koneksi PostgreSQL
 │   │   ├── controllers/
@@ -15,9 +14,8 @@ kasir/
 │   │   │   ├── schema.postgres.sql  # Skema PostgreSQL
 │   │   │   └── initDb.js            # Inisialisasi dan seed akun
 │   │   ├── routes/
-│   │   ├── app.js
+│   │   ├── app.js                   # Express app, dideteksi Vercel otomatis
 │   │   └── server.js                # Server development lokal
-│   ├── vercel.json
 │   └── package.json
 ├── frontend/
 │   ├── src/
@@ -73,12 +71,13 @@ Frontend dan API di-deploy sebagai dua project Vercel; PostgreSQL menggunakan Su
 
 1. Di Vercel, buat **New Project** dari repo `cutzhraa/kasir` yang sama. Ini project kedua—biarkan project frontend terpisah.
 2. Pilih **Root Directory** `backend`.
-3. Atur Environment Variables:
+3. Biarkan Vercel mendeteksi framework **Express** otomatis; jangan isi Build Command atau Output Directory kustom.
+4. Atur Environment Variables:
    - `DATABASE_URL`: Supabase Transaction Pooler connection string.
    - `NODE_ENV`: `production`.
    - `JWT_SECRET`: string acak rahasia minimal 32 karakter (buat nilai terpisah dari password database).
    - `CORS_ORIGINS`: URL frontend Vercel tanpa garis miring di akhir, misalnya `https://kasir.vercel.app`.
-4. Deploy, lalu buka `https://<api-project>.vercel.app/api/health`. Respons `OK` berarti API berhasil terhubung ke database.
+5. Deploy, lalu buka `https://<api-project>.vercel.app/api/health`. Respons `OK` berarti API berhasil terhubung ke database.
 
 ### 3. Hubungkan frontend Vercel
 
