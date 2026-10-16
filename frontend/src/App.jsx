@@ -926,6 +926,14 @@ export default function App() {
               <span style={{ fontSize: '12px', color: '#334155' }}>
                 {quickAddLookupMessage} Pastikan informasi benar sebelum menyimpan. Produk yang disimpan akan <strong>langsung masuk ke keranjang belanja</strong>.
               </span>
+              <a
+                className="quick-add-search-link"
+                href={`https://www.google.com/search?q=${encodeURIComponent(`${quickAddForm.barcode} nama produk`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                🔎 Cari barcode ini di Google
+              </a>
             </div>
 
             <form onSubmit={handleQuickAddSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

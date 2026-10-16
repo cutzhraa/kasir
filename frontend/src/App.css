@@ -954,6 +954,26 @@
   gap: 4px;
 }
 
+.quick-add-search-link {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 40px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.quick-add-search-link:hover {
+  background: #eff6ff;
+}
+
 @media (max-width: 960px) {
   .pos-container {
     height: auto;
