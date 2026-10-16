@@ -9,13 +9,17 @@ const transactionRoutes = require('./routes/transactionRoutes');
 
 const app = express();
 
-// Konfigurasi CORS agar bisa diakses dari Frontend Vite (localhost:5173)
+const allowedOrigins = (process.env.CORS_ORIGINS || [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000'
+].join(','))
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
 const corsOptions = {
-    origin: [
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://localhost:3000'
-    ],
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true

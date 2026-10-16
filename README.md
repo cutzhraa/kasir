@@ -77,3 +77,25 @@ npm install
 npm run dev       # Menjalankan aplikasi React Vite (port 5173)
 ```
 
+## Deploy untuk uji coba online
+
+Backend dan frontend harus di-deploy terpisah. SQLite memerlukan persistent disk; jangan gunakan filesystem sementara untuk data POS.
+
+### Backend di Render
+
+1. Buat **Web Service** dari repo `cutzhraa/kasir`, dengan **Root Directory** `backend`.
+2. Isi **Build Command** `npm install`, **Start Command** `npm start`, dan **Health Check Path** `/api/health`.
+3. Tambahkan persistent disk yang tersedia pada plan service, dengan **Mount Path** `/var/data`.
+4. Atur environment variables:
+   - `NODE_ENV=production`
+   - `DB_PATH=/var/data/kasir.db`
+   - `JWT_SECRET` dengan secret acak yang panjang dan unik
+   - `CORS_ORIGINS` dengan domain frontend Vercel, misalnya `https://kasir-example.vercel.app`
+   - Jangan isi `PORT`; Render menyediakannya.
+5. Setelah deploy, buka `https://<nama-service>.onrender.com/api/health` dan pastikan respons menunjukkan status `OK`.
+
+### Frontend di Vercel
+
+Di **Project Settings → Environment Variables**, tambahkan `VITE_API_BASE_URL` dengan nilai `https://<nama-service>.onrender.com/api`, lalu redeploy frontend.
+
+> **Keamanan:** aplikasi saat ini membuat akun awal `admin/admin123` dan `kasir1/kasir123`. Jangan gunakan untuk transaksi atau data sungguhan sebelum kredensial default dan proteksi API diperbaiki. Deploy ini sebaiknya dipakai untuk uji coba terlebih dahulu.
